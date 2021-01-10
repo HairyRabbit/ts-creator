@@ -4,7 +4,7 @@ import * as yargs from 'yargs'
 import { Options as PrettierOptions } from 'prettier'
 import { highlight } from 'cardinal'
 import * as getStdin from 'get-stdin'
-import create from './'
+import create, { CreatorTarget } from './'
 
 function handler(data?: string) {
   return function handler1(argv: yargs.Arguments): void {
@@ -23,17 +23,21 @@ function handler(data?: string) {
     const output = argv['output'] as string
     const color = argv['color'] as boolean
 
+    const target = argv['target'] as CreatorTarget
+    const tsx = argv['tsx'] as boolean
+    const stripSemi = argv['strip'] as boolean
+
     try {
       const result: string = create(
         data ? data : fs.readFileSync(input, 'utf8'),
-        { prettierOptions }
+        { prettierOptions, target, tsx, stripSemi }
       )
 
       if (!output)
         return console.log((color ? highlight(result) : result) + '\n')
 
       const filepath: string = path.resolve(output)
-      fs.writeFileSync(filepath, data, 'utf8')
+      fs.writeFileSync(filepath, result, 'utf8')
       console.log(`Done at ${filepath}`)
     } catch (e) {
       throw new Error(e)
@@ -41,6 +45,7 @@ function handler(data?: string) {
   }
 }
 
+/** @internal */
 export default async function main(args: string[]): Promise<void> {
   const data: string = await getStdin()
   const isReadData: boolean = '' !== data
@@ -48,7 +53,8 @@ export default async function main(args: string[]): Promise<void> {
     .strict()
     .command({
       command: `$0 ${isReadData ? '' : '<input> '}[options]`,
-      describe: 'A code generator to generate TypeScript code generator from TypeScript code',
+      describe:
+        'A code generator to generate TypeScript code generator from TypeScript code',
       handler: handler(isReadData ? data : undefined),
       builder: (yargs: yargs.Argv): yargs.Argv => {
         if (isReadData) return yargs
@@ -57,18 +63,42 @@ export default async function main(args: string[]): Promise<void> {
           type: 'string',
           normalize: true
         }).epilog(`
-Welcome to contribute, any bugs or features please report on:
+Welcome to contribute, any bug or feature request please report on:
 
-* Bug: https://github.com/HearTao/ts-creator/issues/new?template=bug.md
-* Feature: https://github.com/HearTao/ts-creator/issues/new?template=feature.md
+  https://github.com/HearTao/ts-creator/issues/new/choose
 
-Also see the online playground:
+Also see our online playground:
 
   https://ts-creator.js.org
 
 Happy hack with ts-creator`)
       }
     })
+    .option('t', {
+      alias: 'target',
+      describe: 'Generate target',
+      type: 'string',
+      choices: [
+        CreatorTarget.none,
+        CreatorTarget.expression,
+        CreatorTarget.runnable,
+        CreatorTarget.esmodule,
+        CreatorTarget.commonjs
+      ],
+      default: CreatorTarget.none
+    })
+    .option('s', {
+      alias: 'strip',
+      describe: 'Strip ASI',
+      type: 'boolean',
+      default: true
+    })
+    .option('tsx', {
+      describe: 'Support tsx',
+      type: 'boolean',
+      default: false
+    })
+
     .option('o', {
       alias: 'output',
       describe: 'Output directory',
@@ -78,7 +108,7 @@ Happy hack with ts-creator`)
     .option('color', {
       describe: 'colorful result when print on terminal',
       type: 'boolean',
-      default: false
+      default: true
     })
 
     .option('semi', {
@@ -123,11 +153,10 @@ Happy hack with ts-creator`)
       type: 'string',
       choices: ['always', 'never', 'preserve']
     })
-      
+
     .version()
     .alias('v', 'version')
     .showHelpOnFail(true, 'Specify --help for available options')
     .help('h')
-    .alias('h', 'help')
-    .argv
+    .alias('h', 'help').argv
 }

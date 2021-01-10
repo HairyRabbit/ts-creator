@@ -10,5 +10,9 @@
       "outDir": "./dist",
       "declarationDir": "./dist/types",
       "stripInternal": true
-  }
+  },
+  "include": [
+    "src/",
+    "types/"
+  ]
 }

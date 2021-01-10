@@ -156,7 +156,8 @@ import {
   Expression,
   createArrayLiteral,
   updateSourceFileNode,
-  createExpressionStatement
+  createExpressionStatement,
+  JsxText
 } from 'typescript'
 
 import {
@@ -164,7 +165,8 @@ import {
   createBooleanLiteral,
   createNodeFlags,
   createLiteralCall,
-  createTsAccess
+  createTsAccess,
+  transformInternalSyntaxKind
 } from './helper'
 
 interface QuestionOrExclamation {
@@ -1068,22 +1070,6 @@ function generateJsxAttribute(node: JsxAttribute) {
   ])
 }
 
-function generateJsxClosingFragment(node: JsxClosingFragment) {
-  return transformRawNode(SyntaxKind.JsxClosingFragment)
-}
-
-function generateJsxOpeningFragment(node: JsxOpeningFragment) {
-  return transformRawNode(SyntaxKind.JsxOpeningElement)
-}
-
-function generateJsxFragment(node: JsxFragment) {
-  return createTsCall('createJsxFragment', [
-    transformVisitor(node.openingFragment),
-    transformVisitors(node.children),
-    transformVisitor(node.closingFragment)
-  ])
-}
-
 function generateJsxClosingElement(node: JsxClosingElement) {
   return createTsCall('createJsxClosingElement', [
     transformVisitor(node.tagName)
@@ -1114,6 +1100,29 @@ function generateJsxElement(node: JsxElement) {
   ])
 }
 
+function generateJsxFragment(node: JsxFragment) {
+  return createTsCall('createJsxFragment', [
+    transformVisitor(node.openingFragment),
+    transformVisitors(node.children),
+    transformVisitor(node.closingFragment)
+  ])
+}
+
+function generateJsxOpeningFragment(node: JsxOpeningFragment) {
+  return createTsCall('createJsxOpeningFragment', [])
+}
+
+function generateJsxClosingFragment(node: JsxClosingFragment) {
+  return createTsCall('createJsxJsxClosingFragment', [])
+}
+
+function generateJsxText(node: JsxText) {
+  return createTsCall('createJsxText', [
+    createStringLiteral(node.text),
+    createBooleanLiteral(node.containsOnlyTriviaWhiteSpaces)
+  ])
+}
+
 function generateSourceFile(node: SourceFile) {
   return createTsCall('updateSourceFileNode', [
     createTsCall('createSourceFile', [
@@ -1131,7 +1140,7 @@ function generateSourceFile(node: SourceFile) {
 function transformSyntaxKind(kind: SyntaxKind) {
   return createPropertyAccess(
     createTsAccess(createIdentifier('SyntaxKind')),
-    createIdentifier(SyntaxKind[kind])
+    createIdentifier(transformInternalSyntaxKind(SyntaxKind[kind]))
   )
 }
 
@@ -1140,14 +1149,19 @@ function transformRawNode(kind: SyntaxKind) {
     createAsExpression(
       createTsCall('createNode', [transformSyntaxKind(kind)]),
       createTypeReferenceNode(
-        createQualifiedName(
-          createQualifiedName(
-            createIdentifier('ts'),
-            createIdentifier('SyntaxKind')
-          ),
-          createIdentifier(SyntaxKind[kind])
-        ),
-        undefined
+        createQualifiedName(createIdentifier('ts'), createIdentifier('Token')),
+        [
+          createTypeReferenceNode(
+            createQualifiedName(
+              createQualifiedName(
+                createIdentifier('ts'),
+                createIdentifier('SyntaxKind')
+              ),
+              createIdentifier(SyntaxKind[kind])
+            ),
+            undefined
+          )
+        ]
       )
     )
   )
@@ -1191,6 +1205,9 @@ function transformKeyword(kind: SyntaxKind) {
     case SyntaxKind.StaticKeyword:
       return transformModifier(kind)
 
+    case SyntaxKind.ImportKeyword:
+      return transformAsExpression(transformRawNode(kind))
+
     default:
       return transformRawNode(kind)
   }
@@ -1202,6 +1219,19 @@ function transformTypeKeyword(kind: KeywordTypeNode['kind']) {
 
 function transformModifier(kind: Modifier['kind']) {
   return createTsCall('createModifier', [transformSyntaxKind(kind)])
+}
+
+function transformAsExpression(expr: Expression) {
+  return createAsExpression(
+    expr,
+    createTypeReferenceNode(
+      createQualifiedName(
+        createIdentifier('ts'),
+        createIdentifier('Expression')
+      ),
+      undefined
+    )
+  )
 }
 
 function transformVisitorQuestionOrExclamation(node: QuestionOrExclamation) {
@@ -1509,12 +1539,6 @@ function transformVisitor(node?: Node): Expression {
       return generateJsxOpeningElement(node as JsxOpeningElement)
     case SyntaxKind.JsxClosingElement:
       return generateJsxClosingElement(node as JsxClosingElement)
-    case SyntaxKind.JsxFragment:
-      return generateJsxFragment(node as JsxFragment)
-    case SyntaxKind.JsxOpeningFragment:
-      return generateJsxOpeningFragment(node as JsxOpeningFragment)
-    case SyntaxKind.JsxClosingFragment:
-      return generateJsxClosingFragment(node as JsxClosingFragment)
     case SyntaxKind.JsxAttribute:
       return generateJsxAttribute(node as JsxAttribute)
     case SyntaxKind.JsxAttributes:
@@ -1524,9 +1548,20 @@ function transformVisitor(node?: Node): Expression {
     case SyntaxKind.JsxExpression:
       return generateJsxExpression(node as JsxExpression)
 
+    case SyntaxKind.JsxFragment:
+      return generateJsxFragment(node as JsxFragment)
+    case SyntaxKind.JsxOpeningFragment:
+      return generateJsxOpeningFragment(node as JsxOpeningFragment)
+    case SyntaxKind.JsxClosingFragment:
+      return generateJsxClosingFragment(node as JsxClosingFragment)
     case SyntaxKind.JsxText:
+      return generateJsxText(node as JsxText)
+
+    /* istanbul ignore next */
     case SyntaxKind.MissingDeclaration:
+    /* istanbul ignore next */
     case SyntaxKind.SyntheticExpression:
+    /* istanbul ignore next */
     case SyntaxKind.OmittedExpression:
       throw new Error(
         'unknown syntax: ' + node.kind + ' ' + JSON.stringify(node)
@@ -1540,6 +1575,7 @@ function transformVisitor(node?: Node): Expression {
         return generateToken(node)
       }
 
+      /* istanbul ignore next */
       throw new Error('unsupported syntax: ' + node.kind)
   }
 }
@@ -1548,8 +1584,19 @@ export function transformNode(node: Node): Expression {
   return transformVisitor(node)
 }
 
+/* istanbul ignore next */
 export function transformSourceFile(sourceFile: SourceFile): SourceFile {
+  /* istanbul ignore next */
   return updateSourceFileNode(sourceFile, [
     createExpressionStatement(transformVisitor(sourceFile))
+  ])
+}
+
+/* istanbul ignore next */
+export function transformSourceFileChildren(
+  sourceFile: SourceFile
+): SourceFile {
+  return updateSourceFileNode(sourceFile, [
+    createExpressionStatement(transformVisitors(sourceFile.statements))
   ])
 }
